@@ -95,14 +95,20 @@ def load_and_clean_data():
         st.error("❌ 所有指定文件均读取失败，请检查文件名和格式！")
         return pd.DataFrame()
 
-    # 合并所有数据（纵向拼接）
-    df = pd.concat(df_list, ignore_index=True)
-    return df
-            date_col = next((c for c in cols if '日期' in str(c)), None)
-            model_col = next((c for c in cols if '型号' in str(c) or '款号' in str(c)), None)
-            qty_col = next((c for c in cols if '实际数量' in str(c) or '数量' in str(c)), None)
+   # ========== 主流程：调用函数并处理数据 ==========
+df = load_and_clean_data()
 
-            if date_col and model_col and qty_col:
+if df.empty:
+    st.stop()
+
+cols = df.columns.tolist()
+date_col = next((c for c in cols if '日期' in str(c)), None)
+model_col = next((c for c in cols if '型号' in str(c) or '款号' in str(c)), None)
+qty_col = next((c for c in cols if '实际数量' in str(c) or '数量' in str(c)), None)
+if not all([date_col, model_col, qty_col]):
+     st.warning("⚠️ 未识别到【日期】、【型号】、【实际数量】列，请检查Excel表头！")
+     st.stop()
+     st.write("识别列：", date_col, model_col, qty_col)
                 temp_df = df[[date_col, model_col, qty_col]].copy()
                 temp_df.columns = ['日期', '型号', '实际数量']
                 temp_df['来源分表'] = sheet_name # 标记数据来源
