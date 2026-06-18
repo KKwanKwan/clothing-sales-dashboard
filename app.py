@@ -68,7 +68,7 @@ st.caption("实时生产监控与趋势分析看板")
 # ================= 2. 智能数据加载引擎 =================
 @st.cache_data(ttl=3600) # 缓存1小时，提升性能
 def load_and_clean_data():
-    file_path = r"C:\Users\Administrator\Desktop\ClothingDashboard\2025年打吊牌统计表.xlsx"
+    file_path = "2025年打吊牌统计表.xlsx"
 
     if not os.path.exists(file_path):
         st.error(f"未找到文件：{file_path}")
