@@ -68,20 +68,36 @@ st.caption("实时生产监控与趋势分析看板")
 # ================= 2. 智能数据加载引擎 =================
 @st.cache_data(ttl=3600) # 缓存1小时，提升性能
 def load_and_clean_data():
-    file_path = "2025年打吊牌统计表.xlsx"
+        # ======== 方案一：支持多年度Excel文件自动合并（2025 + 2026 + ...）========
+    # ✅ 请在此处添加你要读取的所有Excel文件名（注意：文件必须已上传到GitHub仓库）
+    file_list = [
+        "2025年打吊牌统计表.xlsx",
+        "2026年打吊牌统计表.xlsx",   # ← 新增2026年文件，后续每年加一行即可
+        # "2027年打吊牌统计表.xlsx",  # 示例：2027年可直接 uncomment 加入
+    ]
 
-    if not os.path.exists(file_path):
-        st.error(f"未找到文件：{file_path}")
+    df_list = []
+    for file_name in file_list:
+        if not os.path.exists(file_name):
+            st.warning(f"⚠️ 警告：未找到文件 '{file_name}'，已跳过")
+            continue
+        try:
+            # 读取该文件的所有Sheet（兼容多Sheet结构）
+            sheets = pd.read_excel(file_name, sheet_name=None)
+            for sheet_name, df_sheet in sheets.items():
+                # 可选：给每张表加个“年份”标识（便于后续筛选）
+                # df_sheet["年份"] = file_name[:4]  # 从文件名提取2025/2026
+                df_list.append(df_sheet)
+        except Exception as e:
+            st.error(f"❌ 读取文件 '{file_name}' 出错：{e}")
+
+    if not df_list:
+        st.error("❌ 所有指定文件均读取失败，请检查文件名和格式！")
         return pd.DataFrame()
 
-    try:
-        # 读取所有Sheet
-        all_sheets = pd.read_excel(file_path, sheet_name=None, engine='openpyxl')
-        df_list = []
-
-        for sheet_name, df in all_sheets.items():
-            # 1. 智能识别列名 (处理空格、别名)
-            cols = df.columns.tolist()
+    # 合并所有数据（纵向拼接）
+    df = pd.concat(df_list, ignore_index=True)
+    return df
             date_col = next((c for c in cols if '日期' in str(c)), None)
             model_col = next((c for c in cols if '型号' in str(c) or '款号' in str(c)), None)
             qty_col = next((c for c in cols if '实际数量' in str(c) or '数量' in str(c)), None)
