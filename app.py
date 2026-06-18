@@ -66,14 +66,12 @@ st.title("👕 制衣厂销量数据中心")
 st.caption("实时生产监控与趋势分析看板")
 
 # ================= 2. 智能数据加载引擎 =================
-@st.cache_data(ttl=3600) # 缓存1小时，提升性能
+@st.cache_data(ttl=3600)
 def load_and_clean_data():
-        # ======== 方案一：支持多年度Excel文件自动合并（2025 + 2026 + ...）========
-    # ✅ 请在此处添加你要读取的所有Excel文件名（注意：文件必须已上传到GitHub仓库）
+    # ======== 支持多年度Excel文件自动合并 ========
     file_list = [
         "2025年打吊牌统计表.xlsx",
-        "2026年打吊牌统计表.xlsx",   # ← 新增2026年文件，后续每年加一行即可
-        # "2027年打吊牌统计表.xlsx",  # 示例：2027年可直接 uncomment 加入
+        "2026年打吊牌统计表.xlsx",
     ]
 
     df_list = []
@@ -82,98 +80,61 @@ def load_and_clean_data():
             st.warning(f"⚠️ 警告：未找到文件 '{file_name}'，已跳过")
             continue
         try:
-            # 读取该文件的所有Sheet（兼容多Sheet结构）
             sheets = pd.read_excel(file_name, sheet_name=None)
             for sheet_name, df_sheet in sheets.items():
-                # 可选：给每张表加个“年份”标识（便于后续筛选）
-                # df_sheet["年份"] = file_name[:4]  # 从文件名提取2025/2026
-                df_list.append(df_sheet)
+                cols = df_sheet.columns.tolist()
+                date_col = next((c for c in cols if '日期' in str(c)), None)
+                model_col = next((c for c in cols if '型号' in str(c) or '款号' in str(c)), None)
+                qty_col = next((c for c in cols if '实际数量' in str(c) or '数量' in str(c)), None)
+                
+                if not all([date_col, model_col, qty_col]):
+                    continue  # 跳过无效工作表
+
+                try:
+                    temp_df = df_sheet[[date_col, model_col, qty_col]].copy()
+                except KeyError:
+                    def fuzzy_match(col_name, candidates):
+                        clean_target = str(col_name).strip().lower()
+                        for c in candidates:
+                            if str(c).strip().lower() == clean_target:
+                                return c
+                        return None
+                    
+                    found_cols = []
+                    for name, col in [('日期', date_col), ('型号', model_col), ('实际数量', qty_col)]:
+                        matched = fuzzy_match(col, df_sheet.columns)
+                        if matched is None:
+                            continue
+                        found_cols.append(matched)
+                    
+                    if len(found_cols) != 3:
+                        continue
+                    temp_df = df_sheet[found_cols].copy()
+
+                temp_df.columns = ['日期', '型号', '实际数量']
+                temp_df['来源分表'] = sheet_name
+                df_list.append(temp_df)
+                
         except Exception as e:
             st.error(f"❌ 读取文件 '{file_name}' 出错：{e}")
 
+    # ✅ 全局空数据检查（放在所有文件处理完成后）
     if not df_list:
-        st.error("❌ 所有指定文件均读取失败，请检查文件名和格式！")
+        st.warning("⚠️ 未识别到任何含【日期】、【型号】、【实际数量】的有效工作表")
         return pd.DataFrame()
 
-   # ========== 主流程：调用函数并处理数据 ==========
-df = load_and_clean_data()
+    # 合并所有数据
+    final_df = pd.concat(df_list, ignore_index=True)
 
-if df.empty:
-    st.stop()
+    # 强力数据清洗
+    final_df['日期'] = pd.to_datetime(final_df['日期'], errors='coerce')
+    final_df['实际数量'] = pd.to_numeric(final_df['实际数量'], errors='coerce').fillna(0)
+    final_df['型号'] = final_df['型号'].astype(str).str.strip()
 
-cols = df.columns.tolist()
-date_col = next((c for c in cols if '日期' in str(c)), None)
-model_col = next((c for c in cols if '型号' in str(c) or '款号' in str(c)), None)
-qty_col = next((c for c in cols if '实际数量' in str(c) or '数量' in str(c)), None)
-if not all([date_col, model_col, qty_col]):
-    st.warning("⚠️ 未识别到【日期】、【型号】、【实际数量】列，请检查Excel表头！")
-    st.stop()
+    # 删除无效行
+    final_df.dropna(subset=['日期'], inplace=True)
 
-# ✅ 安全提取数据：防列名空格/特殊字符导致 KeyError
-try:
-    # 方案A：严格匹配（推荐先试）
-    temp_df = df[[date_col, model_col, qty_col]].copy()
-except KeyError as e:
-    # 方案B：模糊匹配兜底（自动去空格）
-    def fuzzy_match(col_name, candidates):
-        clean_target = str(col_name).strip().lower()
-        for c in candidates:
-            if str(c).strip().lower() == clean_target:
-                return c
-        return None
-    
-    found_cols = []
-    for name, col in [('日期', date_col), ('型号', model_col), ('实际数量', qty_col)]:
-        if col is None:
-            st.error(f"❌ 未识别到【{name}】列")
-            st.stop()
-        matched = fuzzy_match(col, df.columns)
-        if matched is None:
-            st.error(f"❌ 工作表【{sheet_name}】中无匹配列：期望 '{col}'，现有列：{list(df.columns)}")
-            st.stop()
-        found_cols.append(matched)
-    
-    temp_df = df[found_cols].copy()
-
-# ✅ 数据清洗与标记
-temp_df.columns = ['日期', '型号', '实际数量']
-temp_df['来源分表'] = sheet_name
-df_list.append(temp_df)
-st.success(f"✅ 已加载工作表【{sheet_name}】，共 {len(temp_df)} 行数据")
-
-# ✅ 检查是否收集到任何有效数据
-if not df_list:
-    st.warning("⚠️ 未能识别任何包含【日期】、【型号】、【实际数量】的工作表。")
-    return pd.DataFrame()
-    
-# ✅ 检查是否收集到任何有效数据（放在循环外更合理，但此处保留原位置）
-if not df_list:
-    st.warning("⚠️ 未能识别任何包含【日期】、【型号】、【实际数量】的工作表。")
-    return pd.DataFrame()
-
-        if not df_list:
-            st.warning("未能识别任何包含【日期】、【型号】、【实际数量】的工作表。")
-            return pd.DataFrame()
-
-        # 合并所有数据
-        final_df = pd.concat(df_list, ignore_index=True)
-
-        # 2. 强力数据清洗
-        # 转换日期 (处理各种可能的格式)
-        final_df['日期'] = pd.to_datetime(final_df['日期'], errors='coerce')
-        # 转换数量为数字
-        final_df['实际数量'] = pd.to_numeric(final_df['实际数量'], errors='coerce').fillna(0)
-        # 转换型号为字符串 (解决排序报错问题)
-        final_df['型号'] = final_df['型号'].astype(str).str.strip()
-
-        # 删除无效行
-        final_df.dropna(subset=['日期'], inplace=True)
-
-        return final_df
-
-    except Exception as e:
-        st.error(f"数据读取失败: {e}")
-        return pd.DataFrame()
+    return final_df
 
 # 执行加载
 df = load_and_clean_data()
