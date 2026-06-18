@@ -106,13 +106,50 @@ date_col = next((c for c in cols if '日期' in str(c)), None)
 model_col = next((c for c in cols if '型号' in str(c) or '款号' in str(c)), None)
 qty_col = next((c for c in cols if '实际数量' in str(c) or '数量' in str(c)), None)
 if not all([date_col, model_col, qty_col]):
-     st.warning("⚠️ 未识别到【日期】、【型号】、【实际数量】列，请检查Excel表头！")
-     st.stop()
-     st.write("识别列：", date_col, model_col, qty_col)
-                temp_df = df[[date_col, model_col, qty_col]].copy()
-                temp_df.columns = ['日期', '型号', '实际数量']
-                temp_df['来源分表'] = sheet_name # 标记数据来源
-                df_list.append(temp_df)
+    st.warning("⚠️ 未识别到【日期】、【型号】、【实际数量】列，请检查Excel表头！")
+    st.stop()
+
+# ✅ 安全提取数据：防列名空格/特殊字符导致 KeyError
+try:
+    # 方案A：严格匹配（推荐先试）
+    temp_df = df[[date_col, model_col, qty_col]].copy()
+except KeyError as e:
+    # 方案B：模糊匹配兜底（自动去空格）
+    def fuzzy_match(col_name, candidates):
+        clean_target = str(col_name).strip().lower()
+        for c in candidates:
+            if str(c).strip().lower() == clean_target:
+                return c
+        return None
+    
+    found_cols = []
+    for name, col in [('日期', date_col), ('型号', model_col), ('实际数量', qty_col)]:
+        if col is None:
+            st.error(f"❌ 未识别到【{name}】列")
+            st.stop()
+        matched = fuzzy_match(col, df.columns)
+        if matched is None:
+            st.error(f"❌ 工作表【{sheet_name}】中无匹配列：期望 '{col}'，现有列：{list(df.columns)}")
+            st.stop()
+        found_cols.append(matched)
+    
+    temp_df = df[found_cols].copy()
+
+# ✅ 数据清洗与标记
+temp_df.columns = ['日期', '型号', '实际数量']
+temp_df['来源分表'] = sheet_name
+df_list.append(temp_df)
+st.success(f"✅ 已加载工作表【{sheet_name}】，共 {len(temp_df)} 行数据")
+
+# ✅ 检查是否收集到任何有效数据
+if not df_list:
+    st.warning("⚠️ 未能识别任何包含【日期】、【型号】、【实际数量】的工作表。")
+    return pd.DataFrame()
+    
+# ✅ 检查是否收集到任何有效数据（放在循环外更合理，但此处保留原位置）
+if not df_list:
+    st.warning("⚠️ 未能识别任何包含【日期】、【型号】、【实际数量】的工作表。")
+    return pd.DataFrame()
 
         if not df_list:
             st.warning("未能识别任何包含【日期】、【型号】、【实际数量】的工作表。")
